@@ -1,5 +1,31 @@
 const axios = require('axios');
 
+let cachedToken = null;
+let tokenExpiresAt = 0;
+
+async function getAccessToken() {
+  if (cachedToken && Date.now() < tokenExpiresAt) {
+    return cachedToken;
+  }
+  
+  const response = await axios.post(
+    'https://nid.naver.com/oauth2.0/token',
+    null,
+    {
+      params: {
+        grant_type: 'refresh_token',
+        client_id: process.env.CLIENT_ID,
+        client_secret: process.env.CLIENT_SECRET,
+        refresh_token: process.env.REFRESH_TOKEN
+      }
+    }
+  );
+  
+  cachedToken = response.data.access_token;
+  tokenExpiresAt = Date.now() + (3600 * 1000);
+  return cachedToken;
+}
+
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -8,26 +34,19 @@ module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { action, access_token, refresh_token, club_id, menu_id, title, content, client_id, client_secret } = req.body;
+  const { action, menu_id, title, content, refresh_token } = req.body;
 
   try {
-    if (action === 'refresh') {
-      const response = await axios.post(
-        'https://nid.naver.com/oauth2.0/token',
-        null,
-        {
-          params: {
-            grant_type: 'refresh_token',
-            client_id,
-            client_secret,
-            refresh_token
-          }
-        }
-      );
-      return res.json({ access_token: response.data.access_token });
+    // 1달 후 토큰 갱신 시 새 refresh_token 업데이트
+    if (action === 'update_token') {
+      process.env.REFRESH_TOKEN = refresh_token;
+      cachedToken = null;
+      return res.json({ success: true, message: '토큰 업데이트 완료!' });
     }
 
     if (action === 'post') {
+      const accessToken = await getAccessToken();
+      const club_id = process.env.CLUB_ID;
       const subject = encodeURIComponent(encodeURIComponent(title));
       const body = encodeURIComponent(encodeURIComponent(content));
 
@@ -36,7 +55,7 @@ module.exports = async (req, res) => {
         'subject='+subject+'&content='+body+'&openyn=true',
         {
           headers: {
-            'Authorization': 'Bearer '+access_token,
+            'Authorization': 'Bearer '+accessToken,
             'Content-Type': 'application/x-www-form-urlencoded'
           }
         }
