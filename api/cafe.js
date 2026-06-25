@@ -7,23 +7,34 @@ async function getAccessToken() {
   if (cachedToken && Date.now() < tokenExpiresAt) {
     return cachedToken;
   }
-  
-  const response = await axios.post(
-    'https://nid.naver.com/oauth2.0/token',
-    null,
-    {
-      params: {
-        grant_type: 'refresh_token',
-        client_id: process.env.CLIENT_ID,
-        client_secret: process.env.CLIENT_SECRET,
-        refresh_token: process.env.REFRESH_TOKEN
+
+  try {
+    const response = await axios.post(
+      'https://nid.naver.com/oauth2.0/token',
+      null,
+      {
+        params: {
+          grant_type: 'refresh_token',
+          client_id: process.env.CLIENT_ID,
+          client_secret: process.env.CLIENT_SECRET,
+          refresh_token: process.env.REFRESH_TOKEN
+        }
       }
+    );
+
+    if (!response.data.access_token) {
+      throw new Error('토큰 갱신 실패: ' + JSON.stringify(response.data));
     }
-  );
-  
-  cachedToken = response.data.access_token;
-  tokenExpiresAt = Date.now() + (3600 * 1000);
-  return cachedToken;
+
+    cachedToken = response.data.access_token;
+    tokenExpiresAt = Date.now() + (3600 * 1000);
+    console.log('✅ 토큰 갱신 성공');
+    return cachedToken;
+
+  } catch (e) {
+    console.error('❌ 토큰 갱신 오류:', e.response ? JSON.stringify(e.response.data) : e.message);
+    throw e;
+  }
 }
 
 module.exports = async (req, res) => {
@@ -37,7 +48,6 @@ module.exports = async (req, res) => {
   const { action, menu_id, title, content, refresh_token } = req.body;
 
   try {
-    // 1달 후 토큰 갱신 시 새 refresh_token 업데이트
     if (action === 'update_token') {
       process.env.REFRESH_TOKEN = refresh_token;
       cachedToken = null;
@@ -66,6 +76,7 @@ module.exports = async (req, res) => {
     res.status(400).json({ error: 'Invalid action' });
 
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    console.error('❌ 전체 오류:', e.message);
+    res.status(500).json({ error: e.message, detail: e.response ? e.response.data : null });
   }
 };
